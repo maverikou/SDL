@@ -686,7 +686,7 @@ WIN_KeyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam)
 LRESULT CALLBACK
 WIN_WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
-    static SDL_bool s_ModalMoveResizeLoop;
+    static int s_ModalLoopRefCount;
     SDL_WindowData *data;
     LRESULT returnCode = -1;
 
@@ -1087,11 +1087,17 @@ WIN_WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_NCLBUTTONDOWN:
     {
         data->in_title_click = SDL_TRUE;
+        if (s_ModalLoopRefCount++ == 0) {
+            SetTimer(hwnd, (UINT_PTR)&s_ModalLoopRefCount, USER_TIMER_MINIMUM, NULL);
+        }
     } break;
 
     case WM_CAPTURECHANGED:
     {
         data->in_title_click = SDL_FALSE;
+        if (--s_ModalLoopRefCount == 0) {
+            KillTimer(hwnd, (UINT_PTR)&s_ModalLoopRefCount);
+        }
 
         /* The mouse may have been released during a modal loop */
         WIN_CheckAsyncMouseRelease(data);
@@ -1268,12 +1274,14 @@ WIN_WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_ENTERSIZEMOVE:
     case WM_ENTERMENULOOP:
     {
-        SetTimer(hwnd, (UINT_PTR)&s_ModalMoveResizeLoop, USER_TIMER_MINIMUM, NULL);
+        if (s_ModalLoopRefCount++ == 0) {
+            SetTimer(hwnd, (UINT_PTR)&s_ModalLoopRefCount, USER_TIMER_MINIMUM, NULL);
+        }
     } break;
 
     case WM_TIMER:
     {
-        if (wParam == (UINT_PTR)&s_ModalMoveResizeLoop) {
+        if (wParam == (UINT_PTR)&s_ModalLoopRefCount) {
             // Send an expose event so the application can redraw
             SDL_SendWindowEvent(data->window, SDL_WINDOWEVENT_EXPOSED, 0, 0);
             return 0;
@@ -1283,7 +1291,9 @@ WIN_WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_EXITSIZEMOVE:
     case WM_EXITMENULOOP:
     {
-        KillTimer(hwnd, (UINT_PTR)&s_ModalMoveResizeLoop);
+        if (--s_ModalLoopRefCount == 0) {
+            KillTimer(hwnd, (UINT_PTR)&s_ModalLoopRefCount);
+        }
     } break;
 
     case WM_SIZE:
